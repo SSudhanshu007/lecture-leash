@@ -73,12 +73,8 @@ function getServerSnapshot(): DBState {
   return DEFAULT;
 }
 
-export function useDB<T>(selector: (s: DBState) => T): T {
-  return useSyncExternalStore(
-    subscribe,
-    () => selector(getSnapshot()),
-    () => selector(getServerSnapshot()),
-  );
+export function useDB(): DBState {
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export function getDB() {
