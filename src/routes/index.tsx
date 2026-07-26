@@ -22,8 +22,8 @@ export const Route = createFileRoute("/")({
     meta: [
       { title: "Attendance Tracker — Home" },
       { name: "description", content: "Track class attendance, hit your target, know when you can skip." },
-      { property: "og:title", content: "Attendance Tracker" },
-      { property: "og:description", content: "Beautiful offline attendance tracker for students." },
+      { property: "og:title", content: "Attendance Tracker — Home" },
+      { property: "og:description", content: "Track class attendance, hit your target, know when you can skip." },
     ],
   }),
   component: Home,
