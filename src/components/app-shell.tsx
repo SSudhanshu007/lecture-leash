@@ -32,7 +32,7 @@ export function AppShell({ children, title, action }: { children: ReactNode; tit
             return (
               <li key={item.to} className="flex items-stretch">
                 <Link
-                  to={item.to}
+                  to={item.to as "/"}
                   className="group flex flex-1 flex-col items-center justify-center gap-1 relative"
                 >
                   <span
