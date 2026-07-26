@@ -3,13 +3,13 @@ import { Calendar, GraduationCap, Home, PieChart, Settings } from "lucide-react"
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const NAV = [
+const NAV: { to: string; label: string; icon: typeof Home; exact?: boolean }[] = [
   { to: "/", label: "Home", icon: Home, exact: true },
   { to: "/calendar", label: "Calendar", icon: Calendar },
   { to: "/subjects", label: "Subjects", icon: GraduationCap },
   { to: "/reports", label: "Reports", icon: PieChart },
   { to: "/settings", label: "Settings", icon: Settings },
-] as const;
+];
 
 export function AppShell({ children, title, action }: { children: ReactNode; title?: string; action?: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
