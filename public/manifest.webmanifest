@@ -1,0 +1,14 @@
+{
+  "name": "Attendance Tracker",
+  "short_name": "Attendance",
+  "description": "Offline attendance tracker for college students.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f4fb",
+  "theme_color": "#6750A4",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "any", "type": "image/x-icon" }
+  ]
+}
