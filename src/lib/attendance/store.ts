@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import type {
   AttendanceRecord,
   AttendanceStatus,
@@ -73,8 +73,19 @@ function getServerSnapshot(): DBState {
   return DEFAULT;
 }
 
-export function useDB(): DBState {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+export function useDB<T>(selector: (s: DBState) => T): T {
+  const cache = useRef<{ state: DBState | null; value: T }>({ state: null, value: undefined as unknown as T });
+  const get = (snap: DBState) => {
+    if (cache.current.state !== snap) {
+      cache.current = { state: snap, value: selector(snap) };
+    }
+    return cache.current.value;
+  };
+  return useSyncExternalStore(
+    subscribe,
+    () => get(getSnapshot()),
+    () => get(getServerSnapshot()),
+  );
 }
 
 export function getDB() {
