@@ -14,7 +14,195 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      attendance_records: {
+        Row: {
+          date: string
+          id: string
+          lecture_id: string
+          semester_id: string
+          status: string
+          subject_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          date: string
+          id: string
+          lecture_id: string
+          semester_id: string
+          status: string
+          subject_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          date?: string
+          id?: string
+          lecture_id?: string
+          semester_id?: string
+          status?: string
+          subject_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_records_lecture_id_fkey"
+            columns: ["lecture_id"]
+            isOneToOne: false
+            referencedRelation: "lectures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_records_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_records_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lectures: {
+        Row: {
+          end_time: string
+          id: string
+          room: string | null
+          semester_id: string
+          start_time: string
+          subject_id: string
+          teacher: string | null
+          user_id: string
+          weekday: number
+        }
+        Insert: {
+          end_time: string
+          id: string
+          room?: string | null
+          semester_id: string
+          start_time: string
+          subject_id: string
+          teacher?: string | null
+          user_id: string
+          weekday: number
+        }
+        Update: {
+          end_time?: string
+          id?: string
+          room?: string | null
+          semester_id?: string
+          start_time?: string
+          subject_id?: string
+          teacher?: string | null
+          user_id?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lectures_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lectures_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      semesters: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subjects: {
+        Row: {
+          code: string | null
+          color: string
+          faculty: string | null
+          id: string
+          name: string
+          semester_id: string
+          target: number
+          user_id: string
+        }
+        Insert: {
+          code?: string | null
+          color: string
+          faculty?: string | null
+          id: string
+          name: string
+          semester_id: string
+          target?: number
+          user_id: string
+        }
+        Update: {
+          code?: string | null
+          color?: string
+          faculty?: string | null
+          id?: string
+          name?: string
+          semester_id?: string
+          target?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subjects_semester_id_fkey"
+            columns: ["semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_settings: {
+        Row: {
+          active_semester_id: string | null
+          default_target: number
+          theme: string
+          user_id: string
+        }
+        Insert: {
+          active_semester_id?: string | null
+          default_target?: number
+          theme?: string
+          user_id: string
+        }
+        Update: {
+          active_semester_id?: string | null
+          default_target?: number
+          theme?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
