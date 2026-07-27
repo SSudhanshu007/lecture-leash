@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Moon, Sun, Monitor, Download, Upload, Plus, Check, Trash2 } from "lucide-react";
+import { Moon, Sun, Monitor, Download, Upload, Plus, Check, Trash2, LogOut } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import {
   useDB, updateSettings, exportJSON, importJSON, resetAll,
   createSemester, setActiveSemester, deleteSemester,
 } from "@/lib/attendance/store";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -51,10 +52,15 @@ function SettingsPage() {
   };
 
   const doImport = (file: File) => {
-    file.text().then((txt) => {
-      try { importJSON(txt); toast.success("Backup restored"); }
+    file.text().then(async (txt) => {
+      try { await importJSON(txt); toast.success("Backup restored"); }
       catch { toast.error("Invalid file"); }
     });
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    toast.success("Signed out");
   };
 
   return (
@@ -134,18 +140,24 @@ function SettingsPage() {
           </div>
         </Section>
 
+        <Section title="Account">
+          <Button variant="outline" className="w-full rounded-full" onClick={signOut}>
+            <LogOut className="h-4 w-4 mr-1" /> Sign out
+          </Button>
+        </Section>
+
         <Section title="Danger zone">
           <Button
             variant="outline"
             className="w-full rounded-full text-destructive border-destructive/40 hover:bg-destructive/10"
-            onClick={() => { if (confirm("Erase all data? This cannot be undone.")) { resetAll(); toast.success("All data cleared"); navigate({ to: "/" }); } }}
+            onClick={async () => { if (confirm("Erase all data? This cannot be undone.")) { await resetAll(); toast.success("All data cleared"); navigate({ to: "/" }); } }}
           >
             Clear all data
           </Button>
         </Section>
 
         <p className="text-center text-xs text-muted-foreground pt-4 pb-2">
-          Attendance Tracker · Offline · Data stored on this device
+          Attendance Tracker · Synced securely to your account
         </p>
       </div>
     </AppShell>

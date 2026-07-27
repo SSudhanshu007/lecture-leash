@@ -1,4 +1,5 @@
 import { useRef, useSyncExternalStore } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import type {
   AttendanceRecord,
   AttendanceStatus,
@@ -10,7 +11,7 @@ import type {
   Weekday,
 } from "./types";
 
-const KEY = "attendance-tracker-v1";
+const LEGACY_KEY = "attendance-tracker-v1";
 
 const DEFAULT: DBState = {
   version: 1,
@@ -21,42 +22,22 @@ const DEFAULT: DBState = {
   settings: { theme: "system", defaultTarget: 75 },
 };
 
+let state: DBState = DEFAULT;
+let hydrated = false;
+let hydratingFor: string | null = null;
+const listeners = new Set<() => void>();
+
 function isBrowser() {
   return typeof window !== "undefined";
 }
 
-function read(): DBState {
-  if (!isBrowser()) return DEFAULT;
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return DEFAULT;
-    const parsed = JSON.parse(raw) as DBState;
-    return { ...DEFAULT, ...parsed, settings: { ...DEFAULT.settings, ...parsed.settings } };
-  } catch {
-    return DEFAULT;
-  }
-}
-
-let state: DBState = DEFAULT;
-let hydrated = false;
-const listeners = new Set<() => void>();
-
-function ensureHydrated() {
-  if (!hydrated && isBrowser()) {
-    state = read();
-    hydrated = true;
-  }
-}
-
-function persist() {
-  if (isBrowser()) localStorage.setItem(KEY, JSON.stringify(state));
+function notify() {
+  listeners.forEach((l) => l());
 }
 
 function set(updater: (s: DBState) => DBState) {
-  ensureHydrated();
   state = updater(state);
-  persist();
-  listeners.forEach((l) => l());
+  notify();
 }
 
 function subscribe(l: () => void) {
@@ -65,16 +46,17 @@ function subscribe(l: () => void) {
 }
 
 function getSnapshot(): DBState {
-  ensureHydrated();
   return state;
 }
-
 function getServerSnapshot(): DBState {
   return DEFAULT;
 }
 
 export function useDB<T>(selector: (s: DBState) => T): T {
-  const cache = useRef<{ state: DBState | null; value: T }>({ state: null, value: undefined as unknown as T });
+  const cache = useRef<{ state: DBState | null; value: T }>({
+    state: null,
+    value: undefined as unknown as T,
+  });
   const get = (snap: DBState) => {
     if (cache.current.state !== snap) {
       cache.current = { state: snap, value: selector(snap) };
@@ -89,57 +71,272 @@ export function useDB<T>(selector: (s: DBState) => T): T {
 }
 
 export function getDB() {
-  ensureHydrated();
   return state;
 }
 
 const uid = () =>
-  isBrowser() && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  isBrowser() && crypto.randomUUID
+    ? crypto.randomUUID()
+    : ([1e7] as any + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c: any) =>
+        (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16),
+      );
 
-// Semester
+// ---------- Hydration ----------
+
+interface DbRowSemester { id: string; name: string; created_at: string }
+interface DbRowSubject { id: string; semester_id: string; name: string; code: string | null; faculty: string | null; color: string; target: number }
+interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null }
+interface DbRowRecord { id: string; date: string; lecture_id: string; subject_id: string; semester_id: string; status: AttendanceStatus; updated_at: string }
+interface DbRowSettings { theme: "light" | "dark" | "system"; default_target: number; active_semester_id: string | null }
+
+export async function hydrateFromSupabase(userId: string) {
+  if (hydratingFor === userId && hydrated) return;
+  hydratingFor = userId;
+  const [semRes, subRes, lecRes, recRes, setRes] = await Promise.all([
+    supabase.from("semesters").select("*").order("created_at", { ascending: true }),
+    supabase.from("subjects").select("*"),
+    supabase.from("lectures").select("*"),
+    supabase.from("attendance_records").select("*"),
+    supabase.from("user_settings").select("*").eq("user_id", userId).maybeSingle(),
+  ]);
+
+  const semesters: Semester[] = ((semRes.data ?? []) as DbRowSemester[]).map((r) => ({
+    id: r.id, name: r.name, createdAt: r.created_at,
+  }));
+  const subjects: Subject[] = ((subRes.data ?? []) as DbRowSubject[]).map((r) => ({
+    id: r.id, semesterId: r.semester_id, name: r.name,
+    code: r.code ?? undefined, faculty: r.faculty ?? undefined,
+    color: r.color, target: r.target,
+  }));
+  const lectures: Lecture[] = ((lecRes.data ?? []) as DbRowLecture[]).map((r) => ({
+    id: r.id, semesterId: r.semester_id, subjectId: r.subject_id,
+    weekday: r.weekday as Weekday, start: r.start_time, end: r.end_time,
+    room: r.room ?? undefined, teacher: r.teacher ?? undefined,
+  }));
+  const records: AttendanceRecord[] = ((recRes.data ?? []) as DbRowRecord[]).map((r) => ({
+    id: r.id, date: r.date, lectureId: r.lecture_id, subjectId: r.subject_id,
+    semesterId: r.semester_id, status: r.status, updatedAt: r.updated_at,
+  }));
+  const settingsRow = (setRes.data ?? null) as DbRowSettings | null;
+
+  let activeSemesterId = settingsRow?.active_semester_id ?? undefined;
+  if (activeSemesterId && !semesters.find((s) => s.id === activeSemesterId)) {
+    activeSemesterId = semesters[0]?.id;
+  }
+  if (!activeSemesterId && semesters.length > 0) activeSemesterId = semesters[0].id;
+
+  state = {
+    version: 1,
+    semesters,
+    subjects,
+    lectures,
+    records,
+    settings: {
+      theme: settingsRow?.theme ?? "system",
+      defaultTarget: settingsRow?.default_target ?? 75,
+      activeSemesterId,
+    },
+  };
+
+  if (!settingsRow) {
+    // Ensure a settings row exists
+    await supabase.from("user_settings").upsert({
+      user_id: userId,
+      theme: state.settings.theme,
+      default_target: state.settings.defaultTarget,
+      active_semester_id: activeSemesterId ?? null,
+    });
+  }
+
+  hydrated = true;
+  notify();
+
+  // Attempt legacy migration
+  await migrateFromLocalStorage(userId);
+}
+
+export function resetStore() {
+  state = DEFAULT;
+  hydrated = false;
+  hydratingFor = null;
+  notify();
+}
+
+export function isHydrated() {
+  return hydrated;
+}
+
+async function migrateFromLocalStorage(userId: string) {
+  if (!isBrowser()) return;
+  const raw = localStorage.getItem(LEGACY_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as DBState;
+    if (!parsed || !Array.isArray(parsed.semesters)) {
+      localStorage.removeItem(LEGACY_KEY);
+      return;
+    }
+    // Only migrate if remote is empty
+    if (state.semesters.length > 0 || state.subjects.length > 0 || state.records.length > 0) {
+      localStorage.removeItem(LEGACY_KEY);
+      return;
+    }
+    if (parsed.semesters.length) {
+      await supabase.from("semesters").insert(
+        parsed.semesters.map((s) => ({ id: s.id, user_id: userId, name: s.name, created_at: s.createdAt })),
+      );
+    }
+    if (parsed.subjects.length) {
+      await supabase.from("subjects").insert(
+        parsed.subjects.map((s) => ({
+          id: s.id, user_id: userId, semester_id: s.semesterId,
+          name: s.name, code: s.code ?? null, faculty: s.faculty ?? null,
+          color: s.color, target: s.target,
+        })),
+      );
+    }
+    if (parsed.lectures.length) {
+      await supabase.from("lectures").insert(
+        parsed.lectures.map((l) => ({
+          id: l.id, user_id: userId, semester_id: l.semesterId, subject_id: l.subjectId,
+          weekday: l.weekday, start_time: l.start, end_time: l.end,
+          room: l.room ?? null, teacher: l.teacher ?? null,
+        })),
+      );
+    }
+    if (parsed.records.length) {
+      await supabase.from("attendance_records").insert(
+        parsed.records.map((r) => ({
+          id: r.id, user_id: userId, date: r.date, lecture_id: r.lectureId,
+          subject_id: r.subjectId, semester_id: r.semesterId, status: r.status,
+          updated_at: r.updatedAt,
+        })),
+      );
+    }
+    if (parsed.settings) {
+      await supabase.from("user_settings").upsert({
+        user_id: userId,
+        theme: parsed.settings.theme ?? "system",
+        default_target: parsed.settings.defaultTarget ?? 75,
+        active_semester_id: parsed.settings.activeSemesterId ?? null,
+      });
+    }
+    localStorage.removeItem(LEGACY_KEY);
+    // Re-hydrate to pick up migrated data
+    hydrated = false;
+    await hydrateFromSupabase(userId);
+  } catch (e) {
+    console.error("Legacy migration failed", e);
+  }
+}
+
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
+
+function bg<T>(p: PromiseLike<T>) {
+  Promise.resolve(p as PromiseLike<any>).then((res: any) => {
+    if (res?.error) console.error("Supabase write failed:", res.error);
+  });
+}
+
+// ---------- Semester ----------
 export function createSemester(name: string): Semester {
   const s: Semester = { id: uid(), name, createdAt: new Date().toISOString() };
+  const shouldActivate = !state.settings.activeSemesterId;
   set((st) => ({
     ...st,
     semesters: [...st.semesters, s],
     settings: { ...st.settings, activeSemesterId: st.settings.activeSemesterId ?? s.id },
   }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("semesters").insert({ id: s.id, user_id: uid, name: s.name, created_at: s.createdAt }));
+    if (shouldActivate) {
+      bg(supabase.from("user_settings").upsert({
+        user_id: uid,
+        theme: state.settings.theme,
+        default_target: state.settings.defaultTarget,
+        active_semester_id: s.id,
+      }));
+    }
+  })();
   return s;
 }
 
 export function setActiveSemester(id: UUID) {
   set((st) => ({ ...st, settings: { ...st.settings, activeSemesterId: id } }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("user_settings").upsert({
+      user_id: uid,
+      theme: state.settings.theme,
+      default_target: state.settings.defaultTarget,
+      active_semester_id: id,
+    }));
+  })();
 }
 
 export function deleteSemester(id: UUID) {
+  const nextActive =
+    state.settings.activeSemesterId === id
+      ? state.semesters.find((s) => s.id !== id)?.id
+      : state.settings.activeSemesterId;
   set((st) => ({
     ...st,
     semesters: st.semesters.filter((s) => s.id !== id),
     subjects: st.subjects.filter((s) => s.semesterId !== id),
     lectures: st.lectures.filter((l) => l.semesterId !== id),
     records: st.records.filter((r) => r.semesterId !== id),
-    settings: {
-      ...st.settings,
-      activeSemesterId:
-        st.settings.activeSemesterId === id
-          ? st.semesters.find((s) => s.id !== id)?.id
-          : st.settings.activeSemesterId,
-    },
+    settings: { ...st.settings, activeSemesterId: nextActive },
   }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("semesters").delete().eq("id", id));
+    bg(supabase.from("user_settings").upsert({
+      user_id: uid,
+      theme: state.settings.theme,
+      default_target: state.settings.defaultTarget,
+      active_semester_id: nextActive ?? null,
+    }));
+  })();
 }
 
-// Subject
+// ---------- Subject ----------
 export function createSubject(input: Omit<Subject, "id">): Subject {
   const s: Subject = { ...input, id: uid() };
   set((st) => ({ ...st, subjects: [...st.subjects, s] }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("subjects").insert({
+      id: s.id, user_id: uid, semester_id: s.semesterId,
+      name: s.name, code: s.code ?? null, faculty: s.faculty ?? null,
+      color: s.color, target: s.target,
+    }));
+  })();
   return s;
 }
+
 export function updateSubject(id: UUID, patch: Partial<Subject>) {
   set((st) => ({
     ...st,
     subjects: st.subjects.map((s) => (s.id === id ? { ...s, ...patch } : s)),
   }));
+  const dbPatch: any = {};
+  if (patch.name !== undefined) dbPatch.name = patch.name;
+  if (patch.code !== undefined) dbPatch.code = patch.code ?? null;
+  if (patch.faculty !== undefined) dbPatch.faculty = patch.faculty ?? null;
+  if (patch.color !== undefined) dbPatch.color = patch.color;
+  if (patch.target !== undefined) dbPatch.target = patch.target;
+  if (Object.keys(dbPatch).length === 0) return;
+  bg(supabase.from("subjects").update(dbPatch).eq("id", id));
 }
+
 export function deleteSubject(id: UUID) {
   set((st) => ({
     ...st,
@@ -147,44 +344,87 @@ export function deleteSubject(id: UUID) {
     lectures: st.lectures.filter((l) => l.subjectId !== id),
     records: st.records.filter((r) => r.subjectId !== id),
   }));
+  bg(supabase.from("subjects").delete().eq("id", id));
 }
 
-// Lecture
+// ---------- Lecture ----------
 export function createLecture(input: Omit<Lecture, "id">): Lecture {
   const l: Lecture = { ...input, id: uid() };
   set((st) => ({ ...st, lectures: [...st.lectures, l] }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("lectures").insert({
+      id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
+      weekday: l.weekday, start_time: l.start, end_time: l.end,
+      room: l.room ?? null, teacher: l.teacher ?? null,
+    }));
+  })();
   return l;
 }
+
 export function updateLecture(id: UUID, patch: Partial<Lecture>) {
   set((st) => ({
     ...st,
     lectures: st.lectures.map((l) => (l.id === id ? { ...l, ...patch } : l)),
   }));
+  const dbPatch: any = {};
+  if (patch.subjectId !== undefined) dbPatch.subject_id = patch.subjectId;
+  if (patch.weekday !== undefined) dbPatch.weekday = patch.weekday;
+  if (patch.start !== undefined) dbPatch.start_time = patch.start;
+  if (patch.end !== undefined) dbPatch.end_time = patch.end;
+  if (patch.room !== undefined) dbPatch.room = patch.room ?? null;
+  if (patch.teacher !== undefined) dbPatch.teacher = patch.teacher ?? null;
+  if (Object.keys(dbPatch).length === 0) return;
+  bg(supabase.from("lectures").update(dbPatch).eq("id", id));
 }
+
 export function deleteLecture(id: UUID) {
   set((st) => ({
     ...st,
     lectures: st.lectures.filter((l) => l.id !== id),
     records: st.records.filter((r) => r.lectureId !== id),
   }));
-}
-export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID) {
-  set((st) => {
-    const src = st.lectures.filter((l) => l.semesterId === semesterId && l.weekday === from);
-    const cleared = st.lectures.filter((l) => !(l.semesterId === semesterId && l.weekday === to));
-    const copies = src.map((l) => ({ ...l, id: uid(), weekday: to }));
-    return { ...st, lectures: [...cleared, ...copies] };
-  });
+  bg(supabase.from("lectures").delete().eq("id", id));
 }
 
-// Attendance
+export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID) {
+  const src = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === from);
+  const toRemove = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === to);
+  const copies = src.map((l) => ({ ...l, id: uid(), weekday: to }));
+  set((st) => ({
+    ...st,
+    lectures: [
+      ...st.lectures.filter((l) => !(l.semesterId === semesterId && l.weekday === to)),
+      ...copies,
+    ],
+  }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    if (toRemove.length) {
+      bg(supabase.from("lectures").delete().in("id", toRemove.map((l) => l.id)));
+    }
+    if (copies.length) {
+      bg(supabase.from("lectures").insert(
+        copies.map((l) => ({
+          id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
+          weekday: l.weekday, start_time: l.start, end_time: l.end,
+          room: l.room ?? null, teacher: l.teacher ?? null,
+        })),
+      ));
+    }
+  })();
+}
+
+// ---------- Attendance ----------
 export function setStatus(
   date: string,
   lecture: Lecture,
   status: AttendanceStatus | null,
 ) {
+  const key = `${date}-${lecture.id}`;
   set((st) => {
-    const key = `${date}-${lecture.id}`;
     const rest = st.records.filter((r) => r.id !== key);
     if (!status) return { ...st, records: rest };
     const rec: AttendanceRecord = {
@@ -198,21 +438,122 @@ export function setStatus(
     };
     return { ...st, records: [...rest, rec] };
   });
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    if (!status) {
+      bg(supabase.from("attendance_records").delete().eq("id", key));
+    } else {
+      bg(supabase.from("attendance_records").upsert({
+        id: key,
+        user_id: uid,
+        date,
+        lecture_id: lecture.id,
+        subject_id: lecture.subjectId,
+        semester_id: lecture.semesterId,
+        status,
+        updated_at: new Date().toISOString(),
+      }));
+    }
+  })();
 }
 
-// Settings
+// ---------- Settings ----------
 export function updateSettings(patch: Partial<DBState["settings"]>) {
   set((st) => ({ ...st, settings: { ...st.settings, ...patch } }));
+  (async () => {
+    const uid = await currentUserId();
+    if (!uid) return;
+    bg(supabase.from("user_settings").upsert({
+      user_id: uid,
+      theme: state.settings.theme,
+      default_target: state.settings.defaultTarget,
+      active_semester_id: state.settings.activeSemesterId ?? null,
+    }));
+  })();
 }
 
-// Backup
+// ---------- Backup ----------
 export function exportJSON(): string {
-  return JSON.stringify(getDB(), null, 2);
+  return JSON.stringify(state, null, 2);
 }
-export function importJSON(json: string) {
+
+export async function importJSON(json: string) {
   const data = JSON.parse(json) as DBState;
-  set(() => ({ ...DEFAULT, ...data, settings: { ...DEFAULT.settings, ...data.settings } }));
+  if (!data || !Array.isArray(data.semesters)) throw new Error("Invalid backup");
+  const uid = await currentUserId();
+  if (!uid) throw new Error("Not signed in");
+
+  // Wipe existing rows for this user
+  await Promise.all([
+    supabase.from("attendance_records").delete().eq("user_id", uid),
+    supabase.from("lectures").delete().eq("user_id", uid),
+    supabase.from("subjects").delete().eq("user_id", uid),
+    supabase.from("semesters").delete().eq("user_id", uid),
+  ]);
+
+  if (data.semesters.length) {
+    await supabase.from("semesters").insert(
+      data.semesters.map((s) => ({ id: s.id, user_id: uid, name: s.name, created_at: s.createdAt })),
+    );
+  }
+  if (data.subjects.length) {
+    await supabase.from("subjects").insert(
+      data.subjects.map((s) => ({
+        id: s.id, user_id: uid, semester_id: s.semesterId,
+        name: s.name, code: s.code ?? null, faculty: s.faculty ?? null,
+        color: s.color, target: s.target,
+      })),
+    );
+  }
+  if (data.lectures.length) {
+    await supabase.from("lectures").insert(
+      data.lectures.map((l) => ({
+        id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
+        weekday: l.weekday, start_time: l.start, end_time: l.end,
+        room: l.room ?? null, teacher: l.teacher ?? null,
+      })),
+    );
+  }
+  if (data.records.length) {
+    await supabase.from("attendance_records").insert(
+      data.records.map((r) => ({
+        id: r.id, user_id: uid, date: r.date, lecture_id: r.lectureId,
+        subject_id: r.subjectId, semester_id: r.semesterId, status: r.status,
+        updated_at: r.updatedAt,
+      })),
+    );
+  }
+  await supabase.from("user_settings").upsert({
+    user_id: uid,
+    theme: data.settings?.theme ?? "system",
+    default_target: data.settings?.defaultTarget ?? 75,
+    active_semester_id: data.settings?.activeSemesterId ?? null,
+  });
+
+  hydrated = false;
+  await hydrateFromSupabase(uid);
 }
-export function resetAll() {
-  set(() => DEFAULT);
+
+export async function resetAll() {
+  const uid = await currentUserId();
+  if (!uid) {
+    resetStore();
+    return;
+  }
+  await Promise.all([
+    supabase.from("attendance_records").delete().eq("user_id", uid),
+    supabase.from("lectures").delete().eq("user_id", uid),
+    supabase.from("subjects").delete().eq("user_id", uid),
+    supabase.from("semesters").delete().eq("user_id", uid),
+  ]);
+  await supabase.from("user_settings").upsert({
+    user_id: uid,
+    theme: "system",
+    default_target: 75,
+    active_semester_id: null,
+  });
+  state = DEFAULT;
+  hydrated = false;
+  await hydrateFromSupabase(uid);
 }
