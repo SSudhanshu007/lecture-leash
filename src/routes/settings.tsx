@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Moon, Sun, Monitor, Download, Upload, Plus, Check, Trash2 } from "lucide-react";
+import { Moon, Sun, Monitor, Download, Upload, Plus, Check, Trash2, LogOut } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import {
   useDB, updateSettings, exportJSON, importJSON, resetAll,
   createSemester, setActiveSemester, deleteSemester,
 } from "@/lib/attendance/store";
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
