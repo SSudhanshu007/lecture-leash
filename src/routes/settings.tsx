@@ -52,10 +52,15 @@ function SettingsPage() {
   };
 
   const doImport = (file: File) => {
-    file.text().then((txt) => {
-      try { importJSON(txt); toast.success("Backup restored"); }
+    file.text().then(async (txt) => {
+      try { await importJSON(txt); toast.success("Backup restored"); }
       catch { toast.error("Invalid file"); }
     });
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    toast.success("Signed out");
   };
 
   return (
