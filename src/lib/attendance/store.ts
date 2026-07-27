@@ -327,7 +327,7 @@ export function updateSubject(id: UUID, patch: Partial<Subject>) {
     ...st,
     subjects: st.subjects.map((s) => (s.id === id ? { ...s, ...patch } : s)),
   }));
-  const dbPatch: Record<string, unknown> = {};
+  const dbPatch: any = {};
   if (patch.name !== undefined) dbPatch.name = patch.name;
   if (patch.code !== undefined) dbPatch.code = patch.code ?? null;
   if (patch.faculty !== undefined) dbPatch.faculty = patch.faculty ?? null;
@@ -368,7 +368,7 @@ export function updateLecture(id: UUID, patch: Partial<Lecture>) {
     ...st,
     lectures: st.lectures.map((l) => (l.id === id ? { ...l, ...patch } : l)),
   }));
-  const dbPatch: Record<string, unknown> = {};
+  const dbPatch: any = {};
   if (patch.subjectId !== undefined) dbPatch.subject_id = patch.subjectId;
   if (patch.weekday !== undefined) dbPatch.weekday = patch.weekday;
   if (patch.start !== undefined) dbPatch.start_time = patch.start;
