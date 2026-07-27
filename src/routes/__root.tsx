@@ -147,38 +147,39 @@ function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    // Recovery links land with type=recovery in the hash — route to reset page
     if (typeof window !== "undefined") {
       const hash = window.location.hash;
       if (hash.includes("type=recovery") && pathname !== "/reset-password") {
         router.navigate({ to: "/reset-password" });
       }
     }
-    import("@/integrations/supabase/client").then(({ supabase }) => {
+
+    Promise.all([
+      import("@/integrations/supabase/client"),
+      import("@/lib/attendance/store"),
+    ]).then(([{ supabase }, { hydrateFromSupabase, resetStore }]) => {
       supabase.auth.getSession().then(({ data }) => {
         if (!mounted) return;
         setHasSession(!!data.session);
         setReady(true);
-        if (data.session) {
-          import("@/lib/attendance/store").then(({ hydrateFromSupabase }) =>
-            hydrateFromSupabase(data.session!.user.id),
-          );
-        }
+        if (data.session) hydrateFromSupabase(data.session.user.id);
       });
       const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+        if (!mounted) return;
         setHasSession(!!s);
-        if (event === "SIGNED_IN" && s) {
-          import("@/lib/attendance/store").then(({ hydrateFromSupabase }) =>
-            hydrateFromSupabase(s.user.id),
-          );
-        }
+        setReady(true);
+        if (event === "SIGNED_IN" && s) hydrateFromSupabase(s.user.id);
         if (event === "SIGNED_OUT") {
-          import("@/lib/attendance/store").then(({ resetStore }) => resetStore());
+          resetStore();
           router.navigate({ to: "/auth" });
         }
       });
       return () => sub.subscription.unsubscribe();
+    }).catch((e) => {
+      console.error("Auth init failed", e);
+      setReady(true);
     });
+
     return () => {
       mounted = false;
     };
