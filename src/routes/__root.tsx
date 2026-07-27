@@ -127,8 +127,84 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <AuthGate>
+        <Outlet />
+      </AuthGate>
       <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = router.state.location.pathname;
+  const publicRoutes = ["/auth", "/reset-password"];
+  const isPublic = publicRoutes.includes(pathname);
+
+  const [ready, setReady] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    // Recovery links land with type=recovery in the hash — route to reset page
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash;
+      if (hash.includes("type=recovery") && pathname !== "/reset-password") {
+        router.navigate({ to: "/reset-password" });
+      }
+    }
+    import("@/integrations/supabase/client").then(({ supabase }) => {
+      supabase.auth.getSession().then(({ data }) => {
+        if (!mounted) return;
+        setHasSession(!!data.session);
+        setReady(true);
+        if (data.session) {
+          import("@/lib/attendance/store").then(({ hydrateFromSupabase }) =>
+            hydrateFromSupabase(data.session!.user.id),
+          );
+        }
+      });
+      const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+        setHasSession(!!s);
+        if (event === "SIGNED_IN" && s) {
+          import("@/lib/attendance/store").then(({ hydrateFromSupabase }) =>
+            hydrateFromSupabase(s.user.id),
+          );
+        }
+        if (event === "SIGNED_OUT") {
+          import("@/lib/attendance/store").then(({ resetStore }) => resetStore());
+          router.navigate({ to: "/auth" });
+        }
+      });
+      return () => sub.subscription.unsubscribe();
+    });
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (ready && !hasSession && !isPublic) {
+      router.navigate({ to: "/auth" });
+    }
+  }, [ready, hasSession, isPublic, router]);
+
+  if (!ready) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      </div>
+    );
+  }
+
+  if (!hasSession && !isPublic) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-sm text-muted-foreground">Redirecting…</div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }
