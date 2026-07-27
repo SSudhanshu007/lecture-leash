@@ -138,7 +138,7 @@ function RootComponent() {
 
 function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const pathname = router.state.location.pathname;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const publicRoutes = ["/auth", "/reset-password"];
   const isPublic = publicRoutes.includes(pathname);
 
