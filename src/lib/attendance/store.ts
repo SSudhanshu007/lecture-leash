@@ -235,8 +235,8 @@ async function currentUserId(): Promise<string | null> {
   return data.session?.user.id ?? null;
 }
 
-function bg(promise: Promise<{ error: unknown } | any>) {
-  promise.then((res: any) => {
+function bg<T>(p: PromiseLike<T>) {
+  Promise.resolve(p as PromiseLike<any>).then((res: any) => {
     if (res?.error) console.error("Supabase write failed:", res.error);
   });
 }
