@@ -71,8 +71,10 @@ export type Database = {
       }
       lectures: {
         Row: {
+          date: string | null
           end_time: string
           id: string
+          is_extra: boolean
           room: string | null
           semester_id: string
           start_time: string
@@ -82,8 +84,10 @@ export type Database = {
           weekday: number
         }
         Insert: {
+          date?: string | null
           end_time: string
           id: string
+          is_extra?: boolean
           room?: string | null
           semester_id: string
           start_time: string
@@ -93,8 +97,10 @@ export type Database = {
           weekday: number
         }
         Update: {
+          date?: string | null
           end_time?: string
           id?: string
+          is_extra?: boolean
           room?: string | null
           semester_id?: string
           start_time?: string
