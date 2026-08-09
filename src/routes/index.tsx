@@ -1,11 +1,15 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Plus, Trash2, GraduationCap } from "lucide-react";
+import { Plus, Trash2, GraduationCap, CalendarPlus } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { useDB, setStatus } from "@/lib/attendance/store";
+import { useDB, setStatus, createLecture, deleteLecture } from "@/lib/attendance/store";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Weekday } from "@/lib/attendance/types";
 import {
   computeSubjectStats,
   overallStats,
@@ -44,6 +48,7 @@ function Home() {
   const lectures = useDB((s) => s.lectures.filter((x) => x.semesterId === activeId));
   const records = useDB((s) => s.records.filter((x) => x.semesterId === activeId));
 
+  const [extraOpen, setExtraOpen] = useState(false);
   const today = useMemo(() => new Date(), []);
   const dateStr = ymd(today);
   const todays = todaysLectures(lectures, today, activeId);
@@ -125,11 +130,26 @@ function Home() {
                       <span className="mt-1 h-10 w-1.5 rounded-full shrink-0" style={{ background: subj.color }} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold truncate">{subj.name}</p>
+                          <p className="font-semibold truncate">
+                            {subj.name}
+                            {l.isExtra && (
+                              <span className="ml-2 align-middle text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container">
+                                Extra
+                              </span>
+                            )}
+                          </p>
                           <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
                             {l.start}–{l.end}
                           </span>
                         </div>
+                        {l.isExtra && (
+                          <button
+                            onClick={() => deleteLecture(l.id)}
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="h-3 w-3" /> Remove extra class
+                          </button>
+                        )}
                         {(l.room || l.teacher) && (
                           <p className="text-xs text-muted-foreground truncate">
                             {[l.room, l.teacher].filter(Boolean).join(" • ")}
@@ -163,6 +183,22 @@ function Home() {
               })}
             </div>
           )}
+        </section>
+
+        {/* Extra class */}
+        <section>
+          <Card className="p-4 rounded-2xl border-dashed flex items-center gap-3">
+            <span className="h-10 w-10 rounded-2xl bg-primary-container text-on-primary-container grid place-items-center shrink-0">
+              <CalendarPlus className="h-5 w-5" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm">Extra class today?</p>
+              <p className="text-xs text-muted-foreground">Add a one-off class that isn't in your timetable.</p>
+            </div>
+            <Button size="sm" className="rounded-full shrink-0" disabled={subjects.length === 0} onClick={() => setExtraOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add
+            </Button>
+          </Card>
         </section>
 
         {/* Subjects */}
@@ -213,7 +249,74 @@ function Home() {
           )}
         </section>
       </div>
+
+      {activeId && (
+        <ExtraClassDialog
+          open={extraOpen}
+          onOpenChange={setExtraOpen}
+          semesterId={activeId}
+          defaultDate={dateStr}
+        />
+      )}
     </AppShell>
+  );
+}
+
+function ExtraClassDialog({ open, onOpenChange, semesterId, defaultDate }: {
+  open: boolean; onOpenChange: (v: boolean) => void; semesterId: string; defaultDate: string;
+}) {
+  const subjects = useDB((s) => s.subjects.filter((x) => x.semesterId === semesterId));
+  const [subjectId, setSubjectId] = useState("");
+  const [date, setDate] = useState(defaultDate);
+  const [start, setStart] = useState("09:00");
+  const [end, setEnd] = useState("10:00");
+  const [room, setRoom] = useState("");
+
+  const save = () => {
+    if (!subjectId || !date) return;
+    const wd = new Date(`${date}T00:00:00`).getDay();
+    createLecture({
+      semesterId,
+      subjectId,
+      weekday: (wd === 0 ? 6 : wd) as Weekday,
+      start,
+      end,
+      room: room || undefined,
+      isExtra: true,
+      date,
+    });
+    onOpenChange(false);
+    setRoom("");
+    setSubjectId("");
+    setDate(defaultDate);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="rounded-3xl max-w-sm">
+        <DialogHeader><DialogTitle>Add extra class</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <Select value={subjectId} onValueChange={setSubjectId}>
+            <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Choose subject" /></SelectTrigger>
+            <SelectContent>
+              {subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <label className="block text-xs text-muted-foreground">Date
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 h-11 rounded-xl" />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-muted-foreground">Start<Input type="time" value={start} onChange={(e) => setStart(e.target.value)} className="mt-1 h-11 rounded-xl" /></label>
+            <label className="text-xs text-muted-foreground">End<Input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className="mt-1 h-11 rounded-xl" /></label>
+          </div>
+          <Input placeholder="Classroom (optional)" value={room} onChange={(e) => setRoom(e.target.value)} className="h-11 rounded-xl" />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button className="rounded-full" onClick={save} disabled={!subjectId || !date}>Add class</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
