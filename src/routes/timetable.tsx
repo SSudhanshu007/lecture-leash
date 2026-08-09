@@ -29,7 +29,7 @@ function Timetable() {
   const [dupOpen, setDupOpen] = useState(false);
 
   const dayLectures = useMemo(
-    () => lectures.filter((l) => l.weekday === day).sort((a, b) => a.start.localeCompare(b.start)),
+    () => lectures.filter((l) => !l.isExtra && l.weekday === day).sort((a, b) => a.start.localeCompare(b.start)),
     [lectures, day],
   );
 
