@@ -393,13 +393,13 @@ export function deleteLecture(id: UUID) {
 }
 
 export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID) {
-  const src = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === from);
-  const toRemove = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === to);
+  const src = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === from);
+  const toRemove = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === to);
   const copies = src.map((l) => ({ ...l, id: uid(), weekday: to }));
   set((st) => ({
     ...st,
     lectures: [
-      ...st.lectures.filter((l) => !(l.semesterId === semesterId && l.weekday === to)),
+      ...st.lectures.filter((l) => !(!l.isExtra && l.semesterId === semesterId && l.weekday === to)),
       ...copies,
     ],
   }));
