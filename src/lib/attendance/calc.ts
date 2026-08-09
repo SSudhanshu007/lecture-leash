@@ -67,9 +67,10 @@ export function weekdayOf(d: Date): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
 
 export function todaysLectures(lectures: Lecture[], date: Date, semesterId?: string) {
   const wd = weekdayOf(date);
-  if (wd === 0) return [];
+  const key = ymd(date);
   return lectures
-    .filter((l) => (!semesterId || l.semesterId === semesterId) && l.weekday === wd)
+    .filter((l) => !semesterId || l.semesterId === semesterId)
+    .filter((l) => (l.isExtra ? l.date === key : wd !== 0 && l.weekday === wd))
     .sort((a, b) => a.start.localeCompare(b.start));
 }
 

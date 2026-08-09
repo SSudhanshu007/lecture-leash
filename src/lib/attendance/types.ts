@@ -29,6 +29,8 @@ export interface Lecture {
   end: string; // "10:00"
   room?: string;
   teacher?: string;
+  isExtra?: boolean; // one-off extra class, not part of the weekly timetable
+  date?: string; // YYYY-MM-DD, only for extra classes
 }
 
 export interface AttendanceRecord {

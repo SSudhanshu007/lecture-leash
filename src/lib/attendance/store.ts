@@ -85,7 +85,7 @@ const uid = () =>
 
 interface DbRowSemester { id: string; name: string; created_at: string }
 interface DbRowSubject { id: string; semester_id: string; name: string; code: string | null; faculty: string | null; color: string; target: number }
-interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null }
+interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null; is_extra?: boolean | null; date?: string | null }
 interface DbRowRecord { id: string; date: string; lecture_id: string; subject_id: string; semester_id: string; status: AttendanceStatus; updated_at: string }
 interface DbRowSettings { theme: "light" | "dark" | "system"; default_target: number; active_semester_id: string | null }
 
@@ -112,6 +112,7 @@ export async function hydrateFromSupabase(userId: string) {
     id: r.id, semesterId: r.semester_id, subjectId: r.subject_id,
     weekday: r.weekday as Weekday, start: r.start_time, end: r.end_time,
     room: r.room ?? undefined, teacher: r.teacher ?? undefined,
+    isExtra: r.is_extra ?? false, date: r.date ?? undefined,
   }));
   const records: AttendanceRecord[] = ((recRes.data ?? []) as DbRowRecord[]).map((r) => ({
     id: r.id, date: r.date, lectureId: r.lecture_id, subjectId: r.subject_id,
@@ -358,6 +359,7 @@ export function createLecture(input: Omit<Lecture, "id">): Lecture {
       id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
       weekday: l.weekday, start_time: l.start, end_time: l.end,
       room: l.room ?? null, teacher: l.teacher ?? null,
+      is_extra: l.isExtra ?? false, date: l.date ?? null,
     }));
   })();
   return l;
@@ -375,6 +377,8 @@ export function updateLecture(id: UUID, patch: Partial<Lecture>) {
   if (patch.end !== undefined) dbPatch.end_time = patch.end;
   if (patch.room !== undefined) dbPatch.room = patch.room ?? null;
   if (patch.teacher !== undefined) dbPatch.teacher = patch.teacher ?? null;
+  if (patch.isExtra !== undefined) dbPatch.is_extra = patch.isExtra;
+  if (patch.date !== undefined) dbPatch.date = patch.date ?? null;
   if (Object.keys(dbPatch).length === 0) return;
   bg(supabase.from("lectures").update(dbPatch).eq("id", id));
 }
@@ -389,13 +393,13 @@ export function deleteLecture(id: UUID) {
 }
 
 export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID) {
-  const src = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === from);
-  const toRemove = state.lectures.filter((l) => l.semesterId === semesterId && l.weekday === to);
+  const src = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === from);
+  const toRemove = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === to);
   const copies = src.map((l) => ({ ...l, id: uid(), weekday: to }));
   set((st) => ({
     ...st,
     lectures: [
-      ...st.lectures.filter((l) => !(l.semesterId === semesterId && l.weekday === to)),
+      ...st.lectures.filter((l) => !(!l.isExtra && l.semesterId === semesterId && l.weekday === to)),
       ...copies,
     ],
   }));
