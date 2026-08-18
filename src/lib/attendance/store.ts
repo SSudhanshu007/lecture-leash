@@ -442,6 +442,15 @@ export function endLectureFrom(id: UUID, applyFrom: string) {
   }
 }
 
+export function todayKey() {
+  return addDaysKey("1970-01-01", 0) && (() => {
+    const dt = new Date();
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${dt.getFullYear()}-${mm}-${dd}`;
+  })();
+}
+
 function addDaysKey(dateKey: string, days: number) {
   const [y, m, d] = dateKey.split("-").map(Number);
   const dt = new Date(y, m - 1, d + days);
