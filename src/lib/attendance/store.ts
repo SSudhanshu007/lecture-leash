@@ -350,18 +350,23 @@ export function deleteSubject(id: UUID) {
 }
 
 // ---------- Lecture ----------
+function lectureRow(l: Lecture, userId: string) {
+  return {
+    id: l.id, user_id: userId, semester_id: l.semesterId, subject_id: l.subjectId,
+    weekday: l.weekday, start_time: l.start, end_time: l.end,
+    room: l.room ?? null, teacher: l.teacher ?? null,
+    is_extra: l.isExtra ?? false, date: l.date ?? null,
+    effective_from: l.effectiveFrom ?? null, effective_to: l.effectiveTo ?? null,
+  };
+}
+
 export function createLecture(input: Omit<Lecture, "id">): Lecture {
   const l: Lecture = { ...input, id: uid() };
   set((st) => ({ ...st, lectures: [...st.lectures, l] }));
   (async () => {
     const uid = await currentUserId();
     if (!uid) return;
-    bg(supabase.from("lectures").insert({
-      id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
-      weekday: l.weekday, start_time: l.start, end_time: l.end,
-      room: l.room ?? null, teacher: l.teacher ?? null,
-      is_extra: l.isExtra ?? false, date: l.date ?? null,
-    }));
+    bg(supabase.from("lectures").insert(lectureRow(l, uid)));
   })();
   return l;
 }
@@ -380,8 +385,69 @@ export function updateLecture(id: UUID, patch: Partial<Lecture>) {
   if (patch.teacher !== undefined) dbPatch.teacher = patch.teacher ?? null;
   if (patch.isExtra !== undefined) dbPatch.is_extra = patch.isExtra;
   if (patch.date !== undefined) dbPatch.date = patch.date ?? null;
+  if (patch.effectiveFrom !== undefined) dbPatch.effective_from = patch.effectiveFrom ?? null;
+  if (patch.effectiveTo !== undefined) dbPatch.effective_to = patch.effectiveTo ?? null;
   if (Object.keys(dbPatch).length === 0) return;
   bg(supabase.from("lectures").update(dbPatch).eq("id", id));
+}
+
+/**
+ * Edit a timetable slot so the change only applies from `applyFrom` onward.
+ * The original slot is closed the day before, keeping past dates and their
+ * attendance records untouched. Returns the lecture that carries the new values.
+ */
+export function editLectureFrom(
+  id: UUID,
+  patch: Partial<Omit<Lecture, "id" | "semesterId">>,
+  applyFrom: string,
+): Lecture | null {
+  const current = state.lectures.find((l) => l.id === id);
+  if (!current) return null;
+
+  // No history before the change date → edit the slot in place.
+  const startsLater = current.effectiveFrom ? current.effectiveFrom >= applyFrom : false;
+  const noPastRecords = !state.records.some((r) => r.lectureId === id && r.date < applyFrom);
+  if (startsLater || noPastRecords) {
+    const next = { ...patch, effectiveFrom: current.effectiveFrom ?? applyFrom };
+    updateLecture(id, next);
+    return { ...current, ...next };
+  }
+
+  updateLecture(id, { effectiveTo: addDaysKey(applyFrom, -1) });
+  const { id: _omit, ...rest } = current;
+  return createLecture({
+    ...rest,
+    ...patch,
+    effectiveFrom: applyFrom,
+    effectiveTo: current.effectiveTo,
+  });
+}
+
+/** Stop a timetable slot from `applyFrom` onward, keeping earlier attendance. */
+export function endLectureFrom(id: UUID, applyFrom: string) {
+  const current = state.lectures.find((l) => l.id === id);
+  if (!current) return;
+  const hasPast = state.records.some((r) => r.lectureId === id && r.date < applyFrom);
+  const startsLater = current.effectiveFrom ? current.effectiveFrom >= applyFrom : false;
+  if (!hasPast || startsLater) {
+    deleteLecture(id);
+    return;
+  }
+  updateLecture(id, { effectiveTo: addDaysKey(applyFrom, -1) });
+  // Drop any future records already marked for this slot
+  const stale = state.records.filter((r) => r.lectureId === id && r.date >= applyFrom);
+  if (stale.length) {
+    set((st) => ({ ...st, records: st.records.filter((r) => !(r.lectureId === id && r.date >= applyFrom)) }));
+    bg(supabase.from("attendance_records").delete().in("id", stale.map((r) => r.id)));
+  }
+}
+
+function addDaysKey(dateKey: string, days: number) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
 export function deleteLecture(id: UUID) {
@@ -393,33 +459,18 @@ export function deleteLecture(id: UUID) {
   bg(supabase.from("lectures").delete().eq("id", id));
 }
 
-export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID) {
-  const src = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === from);
-  const toRemove = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === to);
-  const copies = src.map((l) => ({ ...l, id: uid(), weekday: to }));
-  set((st) => ({
-    ...st,
-    lectures: [
-      ...st.lectures.filter((l) => !(!l.isExtra && l.semesterId === semesterId && l.weekday === to)),
-      ...copies,
-    ],
-  }));
-  (async () => {
-    const uid = await currentUserId();
-    if (!uid) return;
-    if (toRemove.length) {
-      bg(supabase.from("lectures").delete().in("id", toRemove.map((l) => l.id)));
-    }
-    if (copies.length) {
-      bg(supabase.from("lectures").insert(
-        copies.map((l) => ({
-          id: l.id, user_id: uid, semester_id: l.semesterId, subject_id: l.subjectId,
-          weekday: l.weekday, start_time: l.start, end_time: l.end,
-          room: l.room ?? null, teacher: l.teacher ?? null,
-        })),
-      ));
-    }
-  })();
+export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID, applyFrom?: string) {
+  const start = applyFrom ?? addDaysKey(new Date().toISOString().slice(0, 10), 0);
+  const src = state.lectures.filter(
+    (l) => !l.isExtra && l.semesterId === semesterId && l.weekday === from && (!l.effectiveTo || l.effectiveTo >= start),
+  );
+  const existing = state.lectures.filter((l) => !l.isExtra && l.semesterId === semesterId && l.weekday === to);
+  // Close existing slots on the target day instead of deleting history
+  existing.forEach((l) => endLectureFrom(l.id, start));
+  src.forEach((l) => {
+    const { id: _omit, ...rest } = l;
+    createLecture({ ...rest, weekday: to, effectiveFrom: start, effectiveTo: undefined });
+  });
 }
 
 // ---------- Attendance ----------
