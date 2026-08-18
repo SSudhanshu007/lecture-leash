@@ -65,13 +65,25 @@ export function weekdayOf(d: Date): 0 | 1 | 2 | 3 | 4 | 5 | 6 {
   return d.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }
 
+export function isLectureActiveOn(l: Lecture, dateKey: string) {
+  if (l.effectiveFrom && dateKey < l.effectiveFrom) return false;
+  if (l.effectiveTo && dateKey > l.effectiveTo) return false;
+  return true;
+}
+
 export function todaysLectures(lectures: Lecture[], date: Date, semesterId?: string) {
   const wd = weekdayOf(date);
   const key = ymd(date);
   return lectures
     .filter((l) => !semesterId || l.semesterId === semesterId)
-    .filter((l) => (l.isExtra ? l.date === key : wd !== 0 && l.weekday === wd))
+    .filter((l) => (l.isExtra ? l.date === key : wd !== 0 && l.weekday === wd && isLectureActiveOn(l, key)))
     .sort((a, b) => a.start.localeCompare(b.start));
+}
+
+export function addDays(dateKey: string, days: number) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return ymd(dt);
 }
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

@@ -72,6 +72,8 @@ export type Database = {
       lectures: {
         Row: {
           date: string | null
+          effective_from: string | null
+          effective_to: string | null
           end_time: string
           id: string
           is_extra: boolean
@@ -85,6 +87,8 @@ export type Database = {
         }
         Insert: {
           date?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
           end_time: string
           id: string
           is_extra?: boolean
@@ -98,6 +102,8 @@ export type Database = {
         }
         Update: {
           date?: string | null
+          effective_from?: string | null
+          effective_to?: string | null
           end_time?: string
           id?: string
           is_extra?: boolean
