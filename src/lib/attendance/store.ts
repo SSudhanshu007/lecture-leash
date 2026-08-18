@@ -460,7 +460,7 @@ export function deleteLecture(id: UUID) {
 }
 
 export function duplicateDay(from: Weekday, to: Weekday, semesterId: UUID, applyFrom?: string) {
-  const start = applyFrom ?? addDaysKey(new Date().toISOString().slice(0, 10), 0);
+  const start = applyFrom ?? addDaysKey(todayKey(), 0);
   const src = state.lectures.filter(
     (l) => !l.isExtra && l.semesterId === semesterId && l.weekday === from && (!l.effectiveTo || l.effectiveTo >= start),
   );
