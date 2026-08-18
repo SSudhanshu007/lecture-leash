@@ -85,7 +85,7 @@ const uid = () =>
 
 interface DbRowSemester { id: string; name: string; created_at: string }
 interface DbRowSubject { id: string; semester_id: string; name: string; code: string | null; faculty: string | null; color: string; target: number }
-interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null; is_extra?: boolean | null; date?: string | null }
+interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null; is_extra?: boolean | null; date?: string | null; effective_from?: string | null; effective_to?: string | null }
 interface DbRowRecord { id: string; date: string; lecture_id: string; subject_id: string; semester_id: string; status: AttendanceStatus; updated_at: string }
 interface DbRowSettings { theme: "light" | "dark" | "system"; default_target: number; active_semester_id: string | null }
 
@@ -113,6 +113,7 @@ export async function hydrateFromSupabase(userId: string) {
     weekday: r.weekday as Weekday, start: r.start_time, end: r.end_time,
     room: r.room ?? undefined, teacher: r.teacher ?? undefined,
     isExtra: r.is_extra ?? false, date: r.date ?? undefined,
+    effectiveFrom: r.effective_from ?? undefined, effectiveTo: r.effective_to ?? undefined,
   }));
   const records: AttendanceRecord[] = ((recRes.data ?? []) as DbRowRecord[]).map((r) => ({
     id: r.id, date: r.date, lectureId: r.lecture_id, subjectId: r.subject_id,
