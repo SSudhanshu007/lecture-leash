@@ -31,6 +31,8 @@ export interface Lecture {
   teacher?: string;
   isExtra?: boolean; // one-off extra class, not part of the weekly timetable
   date?: string; // YYYY-MM-DD, only for extra classes
+  effectiveFrom?: string; // YYYY-MM-DD, first date this slot applies (inclusive)
+  effectiveTo?: string; // YYYY-MM-DD, last date this slot applies (inclusive)
 }
 
 export interface AttendanceRecord {
