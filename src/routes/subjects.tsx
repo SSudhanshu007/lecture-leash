@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, Trash2, Search } from "lucide-react";
+import { Plus, Trash2, Search, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useDB, createSubject, deleteSubject } from "@/lib/attendance/store";
+import { useDB, createSubject, deleteSubject, updateSubject } from "@/lib/attendance/store";
 import { SUBJECT_COLORS, computeSubjectStats } from "@/lib/attendance/calc";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,7 @@ function Subjects() {
   const defaultTarget = useDB((s) => s.settings.defaultTarget);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [manualFor, setManualFor] = useState<string | null>(null);
 
   const filtered = subjects.filter((s) => s.name.toLowerCase().includes(q.toLowerCase()) || s.code?.toLowerCase().includes(q.toLowerCase()));
 
@@ -66,6 +67,9 @@ function Subjects() {
                       <div className="text-base font-semibold tabular-nums">{st.percentage.toFixed(0)}%</div>
                       <div className="text-[11px] text-muted-foreground">{st.present}/{st.conducted}</div>
                     </div>
+                    <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground" title="Enter attended / total manually" onClick={() => setManualFor(s.id)}>
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground" onClick={() => confirm(`Delete ${s.name}?`) && deleteSubject(s.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -76,6 +80,11 @@ function Subjects() {
           </div>
         )}
       </div>
+
+      {manualFor && (() => {
+        const sub = subjects.find((x) => x.id === manualFor);
+        return sub ? <ManualCountDialog key={sub.id} subject={sub} onClose={() => setManualFor(null)} /> : null;
+      })()}
 
       {activeId && <AddSubjectDialog open={open} onOpenChange={setOpen} semesterId={activeId} defaultTarget={defaultTarget} />}
     </AppShell>
@@ -126,6 +135,48 @@ function AddSubjectDialog({ open, onOpenChange, semesterId, defaultTarget }: {
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-full">Cancel</Button>
           <Button onClick={save} disabled={!name.trim()} className="rounded-full">Add</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ManualCountDialog({ subject, onClose }: { subject: { id: string; name: string; manualAttended?: number; manualTotal?: number }; onClose: () => void }) {
+  const [attended, setAttended] = useState(String(subject.manualAttended ?? 0));
+  const [total, setTotal] = useState(String(subject.manualTotal ?? 0));
+  const a = Math.max(0, Number(attended) || 0);
+  const t = Math.max(0, Number(total) || 0);
+  const invalid = a > t;
+
+  const save = () => {
+    if (invalid) return;
+    updateSubject(subject.id, { manualAttended: a, manualTotal: t });
+    onClose();
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="rounded-3xl max-w-sm">
+        <DialogHeader><DialogTitle>Enter counts — {subject.name}</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Type how many classes you attended out of the total held. These counts are added on top of anything you mark day-to-day.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Attended</label>
+            <Input inputMode="numeric" value={attended} onChange={(e) => setAttended(e.target.value.replace(/[^0-9]/g, ""))} className="h-11 rounded-xl mt-1" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Total classes</label>
+            <Input inputMode="numeric" value={total} onChange={(e) => setTotal(e.target.value.replace(/[^0-9]/g, ""))} className="h-11 rounded-xl mt-1" />
+          </div>
+        </div>
+        <p className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}>
+          {invalid ? "Attended can't be more than total." : t === 0 ? "Set both to 0 to remove the manual counts." : `${((a / t) * 100).toFixed(0)}% from manual entry`}
+        </p>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} className="rounded-full">Cancel</Button>
+          <Button onClick={save} disabled={invalid} className="rounded-full">Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
