@@ -10,6 +10,8 @@ export interface Subject {
   faculty?: string;
   color: string; // hex
   target: number; // 0-100
+  manualAttended?: number; // manually entered classes attended (added to tracked)
+  manualTotal?: number; // manually entered classes held (added to tracked)
 }
 
 export interface Semester {

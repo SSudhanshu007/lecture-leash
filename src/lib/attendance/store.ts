@@ -84,7 +84,7 @@ const uid = () =>
 // ---------- Hydration ----------
 
 interface DbRowSemester { id: string; name: string; created_at: string }
-interface DbRowSubject { id: string; semester_id: string; name: string; code: string | null; faculty: string | null; color: string; target: number }
+interface DbRowSubject { id: string; semester_id: string; name: string; code: string | null; faculty: string | null; color: string; target: number; manual_attended?: number | null; manual_total?: number | null }
 interface DbRowLecture { id: string; semester_id: string; subject_id: string; weekday: number; start_time: string; end_time: string; room: string | null; teacher: string | null; is_extra?: boolean | null; date?: string | null; effective_from?: string | null; effective_to?: string | null }
 interface DbRowRecord { id: string; date: string; lecture_id: string; subject_id: string; semester_id: string; status: AttendanceStatus; updated_at: string }
 interface DbRowSettings { theme: "light" | "dark" | "system"; default_target: number; active_semester_id: string | null }
@@ -107,6 +107,7 @@ export async function hydrateFromSupabase(userId: string) {
     id: r.id, semesterId: r.semester_id, name: r.name,
     code: r.code ?? undefined, faculty: r.faculty ?? undefined,
     color: r.color, target: r.target,
+    manualAttended: r.manual_attended ?? 0, manualTotal: r.manual_total ?? 0,
   }));
   const lectures: Lecture[] = ((lecRes.data ?? []) as DbRowLecture[]).map((r) => ({
     id: r.id, semesterId: r.semester_id, subjectId: r.subject_id,
@@ -319,6 +320,7 @@ export function createSubject(input: Omit<Subject, "id">): Subject {
       id: s.id, user_id: uid, semester_id: s.semesterId,
       name: s.name, code: s.code ?? null, faculty: s.faculty ?? null,
       color: s.color, target: s.target,
+      manual_attended: s.manualAttended ?? 0, manual_total: s.manualTotal ?? 0,
     }));
   })();
   return s;
@@ -335,6 +337,8 @@ export function updateSubject(id: UUID, patch: Partial<Subject>) {
   if (patch.faculty !== undefined) dbPatch.faculty = patch.faculty ?? null;
   if (patch.color !== undefined) dbPatch.color = patch.color;
   if (patch.target !== undefined) dbPatch.target = patch.target;
+  if (patch.manualAttended !== undefined) dbPatch.manual_attended = patch.manualAttended ?? 0;
+  if (patch.manualTotal !== undefined) dbPatch.manual_total = patch.manualTotal ?? 0;
   if (Object.keys(dbPatch).length === 0) return;
   bg(supabase.from("subjects").update(dbPatch).eq("id", id));
 }
