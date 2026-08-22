@@ -159,6 +159,8 @@ export type Database = {
           color: string
           faculty: string | null
           id: string
+          manual_attended: number
+          manual_total: number
           name: string
           semester_id: string
           target: number
@@ -169,6 +171,8 @@ export type Database = {
           color: string
           faculty?: string | null
           id: string
+          manual_attended?: number
+          manual_total?: number
           name: string
           semester_id: string
           target?: number
@@ -179,6 +183,8 @@ export type Database = {
           color?: string
           faculty?: string | null
           id?: string
+          manual_attended?: number
+          manual_total?: number
           name?: string
           semester_id?: string
           target?: number

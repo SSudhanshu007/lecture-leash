@@ -18,11 +18,14 @@ export function computeSubjectStats(
   records: AttendanceRecord[],
 ): SubjectStats {
   const rs = records.filter((r) => r.subjectId === subject.id);
-  const present = rs.filter((r) => r.status === "present").length;
+  const presentTracked = rs.filter((r) => r.status === "present").length;
   const absent = rs.filter((r) => r.status === "absent").length;
   const cancelled = rs.filter((r) => r.status === "cancelled").length;
   const holiday = rs.filter((r) => r.status === "holiday").length;
-  const conducted = present + absent;
+  const manualAttended = Math.max(0, subject.manualAttended ?? 0);
+  const manualTotal = Math.max(manualAttended, subject.manualTotal ?? 0);
+  const present = presentTracked + manualAttended;
+  const conducted = presentTracked + absent + manualTotal;
   const percentage = conducted === 0 ? 0 : (present / conducted) * 100;
   const t = subject.target / 100;
 
